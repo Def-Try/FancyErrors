@@ -88,6 +88,7 @@ local function fix_model(entity, model)
 	end
 
 	entity.fancyerrors_csentity = ClientsideModel("models/hunter/plates/plate.mdl")
+	entity.fancyerrors_csentity:SetNoDraw(true)
 
 	entity:SetRenderMode(RENDERMODE_TRANSCOLOR)
 	function entity:RenderOverride()
@@ -106,6 +107,7 @@ end
 local function do_download(ent)
 	if downloading[ent:GetModel() or tostring(ent)] then return end
 	validated[ent] = true
+	ent.FE_PARSED = true
 
 	if _G.fancyerrors_models[ent:GetModel() or tostring(ent)] then
 		fix_model(ent, ent:GetModel() or tostring(ent))
@@ -123,9 +125,13 @@ local function do_download(ent)
 	end
 	return false
 end
+local blacklist = {
+	["class C_BaseFlex"]=true,
+	["viewmodel"]=true,
+	["worldspawn"]=true
+}
 local function fixer() timer.Create("fancyerrors_checker", 1, 0, function()
-	local queue_ = table.Copy(queue)
-	for k,v in pairs(queue_) do
+	for k,v in pairs(queue) do
 		if _G.fancyerrors_models[v] then
 			queue[k] = nil
 			downloading[v] = nil
@@ -133,18 +139,18 @@ local function fixer() timer.Create("fancyerrors_checker", 1, 0, function()
 	end
 	if #queue > 5 then return end
 	for _,ent in ents.Iterator() do
-		if ({
-			["class C_BaseFlex"]=true,
-			["viewmodel"]=true,
-			["worldspawn"]=true
-		})[ent:GetClass()] then continue end
+		if blacklist[ent:GetClass()] then continue end
+		if ent.FE_PARSED then return end
 		if not ent:GetModel() then
+			ent.FE_PARSED = true
 			continue
 		end
 		if ent:GetModel():StartsWith("*") then
+			ent.FE_PARSED = true
 			continue
 		end
-		if validated[ent] or file.Exists(ent:GetModel(), "GAME") then
+		if validated[ent] or util.GetModelInfo(ent:GetModel()) then
+			ent.FE_PARSED = true
 			continue
 		end
 		
