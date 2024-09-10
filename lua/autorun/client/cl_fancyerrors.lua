@@ -1,3 +1,7 @@
+if not file.Exists("fancyerrors", "DATA") then
+	file.CreateDir("fancyerrors")
+end
+
 print("FancyErrors starting")
 
 -- CreateConVar("fancyerrors_use_vismesh", "0", FCVAR_USERINFO + FCVAR_ARCHIVE)
@@ -8,14 +12,6 @@ _G.fancyerrors_models = {}
 
 local throwawayrt_texture = GetRenderTarget("fancyerrors_throwawayrt", 512, 512)
 
-concommand.Add("fancyerrors_force_unknown", function()
-	local entity = LocalPlayer():GetEyeTrace().Entity
-	if not IsValid(entity) or entity == game.GetWorld() then return end
-	net.Start("FancyErrors")
-		net.WriteEntity(entity)
-	net.SendToServer()
-end)
-
 local validated = {}
 local queue = {}
 local downloading = {}
@@ -25,6 +21,12 @@ local mesh_mat = Material("fancy_errors/tex.vmt")
 local function fix_model(entity, model)
 	local bones = _G.fancyerrors_models[model]
 	entity.fancyerrors_meshes = {}
+	if #bones > 1 then
+		net.Start("FancyErrors_misc")
+			net.WriteString("startragbones")
+			net.WriteEntity(entity)
+		net.SendToServer()
+	end
 	for bonen,bone in pairs(bones) do
 		local meshes = bone.meshes
 		for _,mesh_ in pairs(meshes) do
@@ -89,10 +91,36 @@ local function fix_model(entity, model)
 
 	entity.fancyerrors_csentity = ClientsideModel("models/hunter/plates/plate.mdl")
 	entity.fancyerrors_csentity:SetNoDraw(true)
+	entity.fancyerrors_color = ({
+		[MAT_ANTLION]=Color(63, 171, 63, 255),
+		[MAT_BLOODYFLESH]=Color(255, 63, 0, 255),
+		[MAT_CONCRETE]=Color(171, 171, 171, 255),
+		[MAT_DIRT]=Color(128, 63, 32, 255),
+		[MAT_EGGSHELL]=Color(63, 63, 63, 255),
+		[MAT_FLESH]=Color(255, 63, 0, 255),
+		[MAT_GRATE]=Color(128, 128, 128, 171),
+		[MAT_ALIENFLESH]=Color(63, 171, 63, 255),
+		[MAT_CLIP]=Color(0, 0, 0, 255),
+		[MAT_SNOW]=Color(171, 171, 171, 255),
+		[MAT_PLASTIC]=Color(63, 128, 171, 255),
+		[MAT_METAL]=Color(128, 128, 128, 255),
+		[MAT_SAND]=Color(203, 189, 147, 255),
+		[MAT_FOLIAGE]=Color(0, 255, 127, 255),
+		[MAT_COMPUTER]=Color(128, 128, 128, 255),
+		[MAT_SLOSH]=Color(0, 128, 128, 128),
+		[MAT_TILE]=Color(63, 63, 63, 255),
+		[MAT_GRASS]=Color(0, 255, 127, 255),
+		[MAT_VENT]=Color(128, 128, 128, 255),
+		[MAT_WOOD]=Color(155, 118, 83, 255),
+		[MAT_DEFAULT]=Color(255, 255, 255, 255),
+		[MAT_GLASS]=Color(0, 171, 255, 128),
+		[MAT_WARPSHIELD]=Color(255, 171, 0, 128)
+	})[entity.fancyerrors_material] or Color(255, 255, 255, 255)
 
-	entity:SetRenderMode(RENDERMODE_TRANSCOLOR)
+	--entity:SetRenderMode(entity.fancyerrors_color.a >= 255 and RENDERMODE_NORMAL or RENDERMODE_TRANSCOLOR)
 	function entity:RenderOverride()
 		if not entity.fancyerrors_meshes then return end
+		entity:SetRenderMode(entity.fancyerrors_color.a >= 255 and RENDERMODE_NORMAL or RENDERMODE_TRANSCOLOR)
 		--render.ResetModelLighting(1, 1, 1)
 		--render.ModelMaterialOverride(Material("fancy_errors/invis.vmt"))
 		render.PushRenderTarget(throwawayrt_texture)
@@ -100,6 +128,10 @@ local function fix_model(entity, model)
 		render.PopRenderTarget()
 		--render.ModelMaterialOverride(nil)
 		render.SetMaterial(mesh_mat)
+
+		mesh_mat:SetVector("$color", entity.fancyerrors_color:ToVector())
+		--mesh_mat:SetVector4D("$color", entity.fancyerrors_color:Unpack())
+		mesh_mat:SetFloat("$alpha", entity.fancyerrors_color.a / 255)
 		render_()
 		render.RenderFlashlights(function() render_() end)
 	end
@@ -107,10 +139,19 @@ end
 local function do_download(ent)
 	if downloading[ent:GetModel() or tostring(ent)] then return end
 	validated[ent] = true
-	ent.FE_PARSED = true
+	validated[ent:GetModel() or tostring(ent)] = true
+	ent.FE_MODEL = ent:GetModel() or tostring(ent)
 
 	if _G.fancyerrors_models[ent:GetModel() or tostring(ent)] then
 		fix_model(ent, ent:GetModel() or tostring(ent))
+		return
+	end
+
+	if file.Exists("fancyerrors/"..string.Replace(ent:GetModel() or tostring(ent), "/", "_").."/data.txt", "DATA") then
+		net.Start("FancyErrors_misc")
+			net.WriteString("hash")
+			net.WriteEntity(ent)
+		net.SendToServer()
 		return
 	end
 
@@ -125,10 +166,19 @@ local function do_download(ent)
 	end
 	return false
 end
+
+concommand.Add("fancyerrors_force_unknown", function()
+	local entity = LocalPlayer():GetEyeTrace().Entity
+	if not IsValid(entity) or entity == game.GetWorld() then return end
+	do_download(entity)
+end)
+
 local blacklist = {
 	["class C_BaseFlex"]=true,
 	["viewmodel"]=true,
-	["worldspawn"]=true
+	["worldspawn"]=true,
+	["env_sprite"]=true,
+	["beam"]=true
 }
 local function fixer() timer.Create("fancyerrors_checker", 1, 0, function()
 	for k,v in pairs(queue) do
@@ -140,17 +190,18 @@ local function fixer() timer.Create("fancyerrors_checker", 1, 0, function()
 	if #queue > 5 then return end
 	for _,ent in ents.Iterator() do
 		if blacklist[ent:GetClass()] then continue end
-		if ent.FE_PARSED then return end
+		if ent.FE_MODEL == ent:GetModel() then continue end
+		if validated[ent:GetModel()] then continue end
 		if not ent:GetModel() then
 			ent.FE_PARSED = true
 			continue
 		end
 		if ent:GetModel():StartsWith("*") then
-			ent.FE_PARSED = true
+			ent.FE_PARSED = ent:GetModel()
 			continue
 		end
 		if validated[ent] or util.GetModelInfo(ent:GetModel()) then
-			ent.FE_PARSED = true
+			ent.FE_PARSED = ent:GetModel()
 			continue
 		end
 		
@@ -177,6 +228,58 @@ net.Receive("FancyErrors_misc", function()
 		end
 		--ent.bonematrixes[0] = Matrix(ent:GetWorldTransformMatrix())
 	end
+	if type == "hash" then
+		local ent = net.ReadEntity()
+		local hash = net.ReadString()
+		local data = file.Read("fancyerrors/"..string.Replace(ent:GetModel() or tostring(ent), "/", "_").."/data.txt")
+		local hashes = string.Split(data, "\n")
+		local found = false
+		for _,hash_ in pairs(hashes) do
+			if hash == hash_ then
+				found = true
+				break
+			end
+		end
+		if not found then
+			downloading[ent:GetModel() or tostring(ent)] = true
+			queue[#queue + 1] = ent:GetModel() or tostring(ent)
+			net.Start("FancyErrors")
+				net.WriteEntity(ent)
+			net.SendToServer()
+			return
+		end
+		print("Found cached model "..(ent:GetModel() or tostring(ent)).." for entity "..tostring(ent).." with hash "..hash)
+		local model = file.Open("fancyerrors/"..string.Replace(ent:GetModel() or tostring(ent), "/", "_").."/"..hash..".txt", 'rb', "DATA")
+		if not model then
+			downloading[ent:GetModel() or tostring(ent)] = true
+			queue[#queue + 1] = ent:GetModel() or tostring(ent)
+			net.Start("FancyErrors")
+				net.WriteEntity(ent)
+			net.SendToServer()
+			return
+		end
+		local model_ = {}
+		ent.fancyerrors_material = model:ReadUShort()
+		local bones = model:ReadUShort()
+		for bonen=0,bones,1 do
+			model_[bonen] = {meshes={}}
+			local bone = model_[bonen].meshes
+			local meshes = model:ReadUShort()
+			for meshn=1,meshes,1 do
+				bone[meshn] = {}
+				local mesh = bone[meshn]
+				local vertices = model:ReadULong()
+				for vertexn=1,vertices,1 do
+					mesh[vertexn] = {
+						pos=Vector(model:ReadDouble(), model:ReadDouble(), model:ReadDouble())
+					}
+				end
+			end
+		end
+		model:Close()
+		_G.fancyerrors_models[ent:GetModel() or tostring(ent)] = model_
+		fix_model(ent, ent:GetModel() or tostring(ent))
+	end
 end)
 
 net.Receive("FancyErrors", function()
@@ -191,6 +294,7 @@ net.Receive("FancyErrors", function()
 			ent=net.ReadEntity(),
 			bones={}
 		}
+		messages[message_id].ent.fancyerrors_material = net.ReadUInt(8)
 		print("Got model "..messages[message_id].model.." for entity "..tostring(messages[message_id].ent))
 		notification.AddProgress("fancyerrors_"..message_id, "["..message_id.."] Downloading model "..
 			messages[message_id].model.."... 0 bones 0 meshes (0 vertices)")
@@ -199,6 +303,35 @@ net.Receive("FancyErrors", function()
 		local msg = messages[message_id]
 		messages[message_id] = nil
 		_G.fancyerrors_models[msg.model] = msg.bones
+
+		local hash = util.SHA256(util.TableToJSON(msg.bones))
+
+		file.CreateDir("fancyerrors/"..string.Replace(msg.ent:GetModel() or tostring(msg.ent), "/", "_"))
+		local model = file.Open("fancyerrors/"..string.Replace(msg.ent:GetModel() or tostring(msg.ent), "/", "_").."/"..hash..".txt", 'wb', "DATA")
+		if model then
+			model:WriteUShort(msg.ent.fancyerrors_material)
+			model:WriteUShort(#msg.bones)
+			for bonen=0,#msg.bones,1 do
+				if msg.bones[bonen] == nil then continue end
+				local bone = msg.bones[bonen].meshes
+				model:WriteUShort(#bone)
+				for meshn=1,#bone,1 do
+					local mesh = bone[meshn]
+					model:WriteULong(#mesh)
+					for vertexn=1,#mesh,1 do
+						model:WriteDouble(mesh[vertexn].pos.x)
+						model:WriteDouble(mesh[vertexn].pos.y)
+						model:WriteDouble(mesh[vertexn].pos.z)
+					end
+				end
+			end
+			model:Flush()
+			file.Write("fancyerrors/"..string.Replace(msg.ent:GetModel() or tostring(msg.ent), "/", "_").."/data.txt",
+				(file.Read("fancyerrors/"..string.Replace(msg.ent:GetModel() or tostring(msg.ent), "/", "_").."/data.txt") or "")..
+				"\n"..hash
+			)
+		end
+
 		fix_model(msg.ent, msg.model)
 		notification.Kill("fancyerrors_"..message_id)
 	end
@@ -220,10 +353,7 @@ net.Receive("FancyErrors", function()
 		end
 		for i=current_vert,vertex_count,1 do
 			mesh[i] = {
-				pos=Vector(net.ReadFloat(), net.ReadFloat(), net.ReadFloat()),
-				u=net.ReadFloat(), v=net.ReadFloat(),
-				normal=Vector(net.ReadFloat(), net.ReadFloat(), net.ReadFloat()),
-				userdata=Vector(net.ReadFloat(), net.ReadFloat(), net.ReadFloat()),
+				pos=Vector(net.ReadFloat(), net.ReadFloat(), net.ReadFloat())
 			}
 			if net.BytesLeft() <= 0 then
 				break

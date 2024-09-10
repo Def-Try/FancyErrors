@@ -22,6 +22,58 @@ local function fake_send(entity, ply)
     return
 end
 
+net.Receive("FancyErrors_misc", function(_, ply)
+    local type = net.ReadString()
+    if type == "hash" then
+        local ent = net.ReadEntity()
+        net.Start("FancyErrors_misc")
+            net.WriteString("hash")
+            net.WriteEntity(ent)
+            if not IsValid(ent:GetPhysicsObject()) then
+                net.WriteString("ffffffffffffffffffffffffffffffff")
+            else
+                local bones = {
+                    [0]={meshes={ent:GetPhysicsObject():GetMesh()}}
+                }
+                if ent:GetPhysicsObjectCount() > 1 then
+                    for i=0,ent:GetPhysicsObjectCount()-1 do
+                        local bone = ent:GetPhysicsObjectNum(i)
+                        bones[i] = {meshes={bone:GetMesh()}}
+                    end
+                end
+                net.WriteString(util.SHA256(util.TableToJSON(bones)))
+            end
+        net.Send(ply)
+        return
+    end
+    if type == "startragbones" then
+        local entity = net.ReadEntity()
+        local bones = {
+            [0]={meshes={entity:GetPhysicsObject():GetMesh()}}
+        }
+        if entity:GetPhysicsObjectCount() > 1 then
+            for i=0,entity:GetPhysicsObjectCount()-1 do
+                local bone = entity:GetPhysicsObjectNum(i)
+                bones[i] = {meshes={bone:GetMesh()}}
+            end
+            local tname = "fancyerrors_ragdoll_bonesync_"..entity:EntIndex().."_ply_"..ply:AccountID()
+            timer.Create(tname, 1 / 5, 0, function()
+                if not IsValid(entity) then return timer.Remove(tname) end
+                net.Start("FancyErrors_misc", true)
+                    net.WriteString("ragbones")
+                    net.WriteEntity(entity)
+                    net.WriteUInt(#bones, 16)
+                    for b=0,#bones do
+                        net.WriteUInt(entity:TranslatePhysBoneToBone(b), 16)
+                        net.WriteMatrix(entity:GetBoneMatrix(entity:TranslatePhysBoneToBone(b)))
+                    end
+                net.Send(ply)
+            end)
+        end
+        return
+    end
+end)
+
 net.Receive("FancyErrors", function(_, ply)
     local entity = net.ReadEntity()
     if not IsValid(entity) or entity == game.GetWorld() then
@@ -49,6 +101,7 @@ net.Receive("FancyErrors", function(_, ply)
         net.WriteUInt(message_id, 16)
         net.WriteString(entity:GetModel())
         net.WriteEntity(entity)
+        net.WriteUInt(entity:GetMaterialType(), 8)
     net.Send(ply)
 
     local current_mesh = 1
@@ -87,11 +140,7 @@ net.Receive("FancyErrors", function(_, ply)
                 for i=current_vert,#mesh,1 do
                     if not verticies[i] then verticies[i] = {} end
                     write_vec(mesh[i].pos)
-                    net.WriteFloat(verticies[i].u or math.Round(math.random()))
-                    net.WriteFloat(verticies[i].v or math.Round(math.random()))
-                    write_vec(verticies[i].normal or Vector(0, 0, -1))
-                    write_vec(verticies[i].userdata or Vector())
-                    message_size = message_size + 4 * (3*3 + 2)
+                    message_size = message_size + 4 * 3
                     current_vert = i
                     if message_size >= max_message_size then break end
                 end
@@ -114,21 +163,6 @@ net.Receive("FancyErrors", function(_, ply)
             net.WriteUInt(2, 2) -- transfer finished
             net.WriteUInt(message_id, 16)
         net.Send(ply)
-        if entity:GetPhysicsObjectCount() > 1 then
-            local tname = "fancyerrors_ragdoll_bonesync_"..entity:EntIndex().."_ply_"..ply:AccountID()
-            timer.Create(tname, 1 / 5, 0, function()
-                if not IsValid(entity) then return timer.Remove(tname) end
-                net.Start("FancyErrors_misc", true)
-                    net.WriteString("ragbones")
-                    net.WriteEntity(entity)
-                    net.WriteUInt(#bones, 16)
-                    for b=0,#bones do
-                        net.WriteUInt(entity:TranslatePhysBoneToBone(b), 16)
-                        net.WriteMatrix(entity:GetBoneMatrix(entity:TranslatePhysBoneToBone(b)))
-                    end
-                net.Send(ply)
-            end)
-        end
     end)
 
     timer.Create("fancyerrors_message_"..message_id, 0.5, 0, function()

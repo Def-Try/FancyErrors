@@ -1,3 +1,4 @@
-VertexLitGeneric {
-	$basetexture models/debug/debugwhite
-}
+VertexLitGeneric
+ {
+ 	"$basetexture" "models/debug/debugwhite"
+ }
