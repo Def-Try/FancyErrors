@@ -1,3 +1,7 @@
+if game.Singleplayer() then
+	return print("FancyErrors not starting: in a single player game")
+end
+
 if not file.Exists("fancyerrors", "DATA") then
 	file.CreateDir("fancyerrors")
 end
@@ -116,6 +120,7 @@ local function fix_model(entity, model)
 		[MAT_GLASS]=Color(0, 171, 255, 128),
 		[MAT_WARPSHIELD]=Color(255, 171, 0, 128)
 	})[entity.fancyerrors_material] or Color(255, 255, 255, 255)
+	-- TODO: collect average color from material and use that instead. lol.
 
 	--entity:SetRenderMode(entity.fancyerrors_color.a >= 255 and RENDERMODE_NORMAL or RENDERMODE_TRANSCOLOR)
 	function entity:RenderOverride()
@@ -180,34 +185,39 @@ local blacklist = {
 	["env_sprite"]=true,
 	["beam"]=true
 }
-local function fixer() timer.Create("fancyerrors_checker", 1, 0, function()
-	for k,v in pairs(queue) do
-		if _G.fancyerrors_models[v] then
-			queue[k] = nil
-			downloading[v] = nil
-		end
+local function fixer()
+	if LocalPlayer():IsListenServerHost() then
+		return print("FancyErrors not starting: we are listenserver host")
 	end
-	if #queue > 5 then return end
-	for _,ent in ents.Iterator() do
-		if blacklist[ent:GetClass()] then continue end
-		if ent.FE_MODEL == ent:GetModel() then continue end
-		if validated[ent:GetModel()] then continue end
-		if not ent:GetModel() then
-			ent.FE_PARSED = true
-			continue
+	timer.Create("fancyerrors_checker", 1, 0, function()
+		for k,v in pairs(queue) do
+			if _G.fancyerrors_models[v] then
+				queue[k] = nil
+				downloading[v] = nil
+			end
 		end
-		if ent:GetModel():StartsWith("*") then
-			ent.FE_PARSED = ent:GetModel()
-			continue
+		if #queue > 5 then return end
+		for _,ent in ents.Iterator() do
+			if blacklist[ent:GetClass()] then continue end
+			if ent.FE_MODEL == ent:GetModel() then continue end
+			if validated[ent:GetModel()] then continue end
+			if not ent:GetModel() then
+				ent.FE_PARSED = true
+				continue
+			end
+			if ent:GetModel():StartsWith("*") then
+				ent.FE_PARSED = ent:GetModel()
+				continue
+			end
+			if validated[ent] or util.GetModelInfo(ent:GetModel()) then
+				ent.FE_PARSED = ent:GetModel()
+				continue
+			end
+			
+			if do_download(ent) then break end
 		end
-		if validated[ent] or util.GetModelInfo(ent:GetModel()) then
-			ent.FE_PARSED = ent:GetModel()
-			continue
-		end
-		
-		if do_download(ent) then break end
-	end
-end) end
+	end)
+end
 if not IsValid(LocalPlayer()) then
 	hook.Add("InitPostEntity", "fancyerrors_start", function()
 		fixer()
