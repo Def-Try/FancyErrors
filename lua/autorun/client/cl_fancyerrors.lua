@@ -1,7 +1,3 @@
-if game.Singleplayer() then
-	return print("FancyErrors not starting: in a single player game")
-end
-
 if not file.Exists("fancyerrors", "DATA") then
 	file.CreateDir("fancyerrors")
 end
@@ -23,7 +19,8 @@ local messages = {}
 local mesh_mat = Material("fancy_errors/tex.vmt")
 
 local function fix_model(entity, model)
-	local bones = _G.fancyerrors_models[model]
+	local bones = _G.fancyerrors_models[model][1] 
+	entity.fancyerrors_material = _G.fancyerrors_models[model][2]
 	entity.fancyerrors_meshes = {}
 	if #bones > 1 then
 		net.Start("FancyErrors_misc")
@@ -187,7 +184,10 @@ local blacklist = {
 }
 local function fixer()
 	if LocalPlayer():IsListenServerHost() then
-		return print("FancyErrors not starting: we are listenserver host")
+		return print("FancyErrors not starting fully: we are listenserver host")
+	end
+	if game.SinglePlayer() then
+		return print("FancyErrors not starting fully: in a single player game")
 	end
 	timer.Create("fancyerrors_checker", 1, 0, function()
 		for k,v in pairs(queue) do
@@ -287,7 +287,7 @@ net.Receive("FancyErrors_misc", function()
 			end
 		end
 		model:Close()
-		_G.fancyerrors_models[ent:GetModel() or tostring(ent)] = model_
+		_G.fancyerrors_models[ent:GetModel() or tostring(ent)] = {model_, ent.fancyerrors_material}
 		fix_model(ent, ent:GetModel() or tostring(ent))
 	end
 end)

@@ -1,7 +1,3 @@
-if game.Singleplayer() then
-    return print("FancyErrors not starting: in a single player game")
-end
-
 print("FancyErrors starting")
 
 util.AddNetworkString("FancyErrors")
