@@ -2,6 +2,8 @@ if not file.Exists("fancyerrors", "DATA") then
 	file.CreateDir("fancyerrors")
 end
 
+local enable = CreateConVar("fancyerrors_enabled", "1", {FCVAR_ARCHIVE}, "Enable FancyErrors", 0, 1)
+
 print("FancyErrors starting")
 
 -- CreateConVar("fancyerrors_use_vismesh", "0", FCVAR_USERINFO + FCVAR_ARCHIVE)
@@ -19,7 +21,9 @@ local messages = {}
 local mesh_mat = Material("fancy_errors/tex.vmt")
 
 local function fix_model(entity, model)
+	print(model)
 	local bones = _G.fancyerrors_models[model][1] 
+	print(bones)
 	entity.fancyerrors_material = _G.fancyerrors_models[model][2]
 	entity.fancyerrors_meshes = {}
 	if #bones > 1 then
@@ -29,6 +33,8 @@ local function fix_model(entity, model)
 		net.SendToServer()
 	end
 	for bonen,bone in pairs(bones) do
+		PrintTable(bone)
+		print(bonen, bone)
 		local meshes = bone.meshes
 		for _,mesh_ in pairs(meshes) do
 			local obj = Mesh(mesh_mat)
@@ -170,6 +176,7 @@ local function do_download(ent)
 end
 
 concommand.Add("fancyerrors_force_unknown", function()
+	if not enable:GetBool() then return end
 	local entity = LocalPlayer():GetEyeTrace().Entity
 	if not IsValid(entity) or entity == game.GetWorld() then return end
 	do_download(entity)
@@ -190,6 +197,7 @@ local function fixer()
 		return print("FancyErrors not starting fully: in a single player game")
 	end
 	timer.Create("fancyerrors_checker", 1, 0, function()
+		if not enable:GetBool() then return end
 		for k,v in pairs(queue) do
 			if _G.fancyerrors_models[v] then
 				queue[k] = nil
@@ -230,6 +238,7 @@ net.Receive("FancyErrors_misc", function()
 	local type = net.ReadString()
 	if type == "ragbones" then
 		local ent = net.ReadEntity()
+		if not IsValid(ent) then return end
 		ent.bonematrixes = ent.bonematrixes or {}
 		for b=0,net.ReadUInt(16) do
 			net.ReadUInt(16)
@@ -312,7 +321,7 @@ net.Receive("FancyErrors", function()
 	if type == 2 then
 		local msg = messages[message_id]
 		messages[message_id] = nil
-		_G.fancyerrors_models[msg.model] = msg.bones
+		_G.fancyerrors_models[msg.model] = {msg.bones, msg.ent.fancyerrors_material}
 
 		local hash = util.SHA256(util.TableToJSON(msg.bones))
 
